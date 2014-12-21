@@ -1,0 +1,150 @@
+---
+title: 'Fuel efficiency and transmissions in the mtcars dataset '
+output: pdf_document
+---
+###Executive summary
+A comparison of the effect automatic vs. manual transmission on fuel efficiency suggests that the effects are confounded by the distribution of weight and number of cylinders between the two transmission types. In general higher weight predicts lower fuel efficiency, as does a larger number of cylinders. The analysis of available data suggests that manual transmissions will have higher mpg than automatic transmissions at low weight and fewer cylinders (for a 4 cylinder car weighting 2000 lbs ~28 mpg predicted for manual transmission, but ~25 mpg for an automatic). However, fuel efficiency of a manual transmission declines more quickly with weight than that of an automatic (4 cylinder car weighting 5000 lbs ~9 mpg predicted for manual transmission, but ~18 mpg for an automatic). 
+```{r, fig.height=3.5, fig.width=7, results = "asis", echo=FALSE}
+rm(list = ls())
+library(datasets)
+library(ggplot2)
+library(knitr)
+library(reshape2)
+options(digits=2)
+meanmpg<-tapply(mtcars$mpg, list(mtcars$am), mean)
+sdmpg<-tapply(mtcars$mpg, list(mtcars$am), sd)
+stuff<-t.test(mpg~as.factor(am),data=mtcars)
+```
+###Exploratory data analysis
+The R mtcars dataset describes fuel consumption (mpg) and 10 aspects of automobile design and performance for 32 automobiles (1973–74 models). A preliminary analysis with a ttest suggests that there may be a significant difference (t=`r stuff$parameter`, p=`r stuff$p.value`) in the the mean fuel efficiency of manual (`r meanmpg[1]` mpg) and automatic transmissions (`r meanmpg[2]` mpg). 
+
+However,  a brief examination of the data also revels that there are the other several other variables that are correlated with mpg such as the number of cylinders (cyl), displacement (disp), horsepower (hp) and weight (wt) (see Appendix). These additional variables may confound the effect of transmission type (am) on mpg (e.g., see figure below showing the relationship between weight, transimission type and mpg). 
+
+```{r, results = 'asis', message = FALSE, warnings = FALSE, echo=FALSE, fig.width=3, fig.height=3, fig.cap="Figure 1: A smiley face because I work."}
+mtcars$am <- factor(mtcars$am, levels=c(0,1), labels=c("automatic", "manual"))
+p <- ggplot(mtcars, aes(factor(am), mpg))+xlab("Transmission type")+ylab("Miles per gallon")
+p + geom_boxplot()
+  #kable(meanmpg, col.names = c("manual", "automatic"), caption="Mean mpg")
+
+
+qp <- ggplot(data = mtcars)+geom_point(aes(x = wt, y = mpg, color=factor(am)))
+      qp+xlab("Weight (1000 lbs)")+ylab("Miles per gallon")+theme(legend.position = c(.81, .9))+scale_colour_discrete("Transmission type") 
+```
+
+###Analysis
+To determine the indepdendent effect of transmission type on mpg, I evaluated linear regression models which included multiple potential predictors of mpg. A multiple linear regression will tell us the impact of tranmission type while controlling for the effects of other variables. I started with a model that included all the variables in the dataset, and then step by step elminated those that had regression coefficients not signficantly different from zero. This procedure produced the model $mpg_i=\beta_0+\beta_1am_{i,1}+\beta_2wt_i+\beta_3qsec_i+e_i$, where qsec is the 1/4 mile time (R code to produce these results can be found at ).
+```{r,  results = "asis", warnings=FALSE, echo=FALSE}
+mfit1<-lm(mpg~factor(am)+factor(cyl)+disp+hp+drat+wt+qsec+factor(vs)+factor(gear)+carb,data=mtcars)
+endfit<-step(mfit1, direction="backward",trace=FALSE)
+
+mfitcorr<-lm(mpg~factor(am)+factor(cyl)+(disp)+hp+wt, data=mtcars)
+endfitcorr<-step(mfitcorr, direction="backward",trace=FALSE)
+
+mfitcorr_cyl<-lm(mpg~factor(am)+factor(cyl)+wt, data=mtcars)
+compmod<-anova(endfitcorr, endfit)
+
+mfitcond<-lm(mpg~factor(am)*wt*qsec, data=mtcars)
+mfitcondfin<-step(mfitcond, direction="backward",trace=FALSE)
+
+mfitcorr_cylcr<-lm(mpg~factor(am)*factor(cyl)*wt, data=mtcars)
+mfitcorr_cylcr_fin<-step(mfitcorr_cylcr, direction="backward",trace=FALSE)
+
+m1sum<-summary(mfitcondfin)
+m2sum<-summary(mfitcorr_cylcr_fin)
+
+```
+I also evaluated a model that initially included only transmission type(am) and those variables found to be strongly correlated with mpg: $mpg_i=\beta_0+\beta_1am_{i,1}+\beta_2cyl_{i,6}+\beta_3cyl_{i,8}+\beta_4wt_i+\beta_5hp_i+\beta_6disp_i+e_i$ (see Appendix). Stepwise elimination removed displacement as a predictor. There was also a strong correlation between horsepower and number of cylinders (see Appendix). Elmination of either one of these variables created no significant difference in the model fit as evaluated by anova (F=`r compmod$F[2]`, p=`r compmod[2,"Pr(>F)"]`), and the second candidate model therefore included only transmission type(am), number of cylinders (cyl), and weight(wt).
+
+Neither of these two candidate models included the potential confounding effect of the variables were there may be an interaction bewteen vehicle weight, transmission type and other variables. Accordingly, I fit two new models that included all possible interactions from the first two candidate models: model 1 with an interaction between transmission type, weight and qsec, and model 2 with an interaction bewteen transmission type, weight and cyl. Backwards elmination for the first model suggested that the effects of qsec were not confounded with the impacts of the other two variables. For the second model there was no interaction between number of cylinders and weight, but there was an interaction between transmission type and weight. 
+
+These models are not nested and so cannot be compared with a likelihood ratio test; however they had similar explanatory power (model 1 $R^2$=`r m1sum$r.squared`,model 2 $R^2$=`r m2sum$r.squared` ). While analysis of the residuals suggested no major differences in the fit of thse two models (see Appendix for residual plots).
+
+The second model is the easiest to interpret, and I proceed with analysis of this model: $mpg_i=\beta_0+\beta_1am_{i,1}+\beta_2cyl_{i,1}+\beta_3cyl_{i,6}+\beta_4cyl_{i,8}+\beta_5wt_i+\beta_6wt_i*am_{i,1}+e_i$. The regression coefficients (see table and figure below), indicate that transmission type alters both the intercept and slope of the relationship of mpg with weight, while number of cylinders alters only the intercept. The effect of 6 cylinders is not significantly different at a 95% interval; however, there are relatively few data points for this category. 
+
+```{r, results = 'asis', fig.height=3.5, fig.width=7,echo=FALSE, message = FALSE, warnings = FALSE}
+
+library(knitr)
+library(ggplot2)
+library(gridExtra)
+dc<-data.frame(mfitcorr_cylcr_fin$coef)
+sldata<-data.frame(am=numeric(),cyl=numeric(), intc=numeric(), slope=numeric())
+sldata[1,]<-c(0,4,dc[1,1],dc[5,1])
+sldata[2,]<-c(0,6,dc[1,1]+dc[3,1],dc[5,1])
+sldata[3,]<-c(0,8,dc[1,1]+dc[4,1],dc[5,1])
+sldata[4,]<-c(1,4,dc[1,1]+dc[2,1],dc[5,1]+dc[6,1])
+sldata[5,]<-c(1,6,dc[1,1]+dc[2,1]+dc[3,1],dc[5,1]+dc[6,1])
+sldata[6,]<-c(1,8,dc[1,1]+dc[2,1]+dc[4,1],dc[5,1]+dc[6,1])
+sldata$am <- factor(sldata$am, levels=c(0,1), labels=c("automatic", "manual"))
+
+p<-ggplot(data=mtcars,aes(wt,mpg,color=factor(cyl)))
+p<-p+geom_point()+facet_wrap("am")+xlab("Weight (1000 lbs)")+ylab("Miles per gallon")+theme(legend.position = c(.91, .65))+scale_colour_discrete("Cylinders")+geom_abline(data=sldata,aes(intercept=intc,slope=slope,col=factor(cyl)))
+
+tobj<-summary(mfitcorr_cylcr_fin)$coef
+rownames(tobj)<-c("Intercept", "am=1", "cyl=6", "cyl=8", "wt", "wt*(am=1)")
+p2<-kable(tobj)
+p2<-tableGrob(round(tobj, digits=2))
+
+p2 = tableGrob(round(tobj, digits=2),
+  # change font sizes:
+  gpar.coltext = gpar(cex = .8),
+  gpar.rowtext = gpar(cex = .8),
+gpar.coretext = gpar(cex =.8))
+grid.arrange(p2, p, main="Regression coefficients, data and predictions", ncol = 2, widths=c(1,1))
+
+```
+
+###Conclusions
+An examination of the data and predictions (see Figure above) indicates that we should expect lighter, 4 cylinder cars with a manual transmission to have higher mpg than automatics. However, fuel efficiency of manual transmission cars drops more quickly with weight (slope=`r sldata[6,"slope"]`) than for automatics (slope=`r sldata[3,"slope"]`). Therefore, for heavy cars (~5000 lbs) with 8 cylinders we expect lower mpg for manual transmissions than automatics. However, these conclusions must be tempered by the acknowledegment that the data we examined did not have an even distribution of car weights or cylinder numbers across the two transmission categories. Most manual transmission cars were lighter and had a lower number of cylinders. Therefore, it is possible that a more even distibution of data would reveal no difference in manual and automaticfuel efficiency. 
+
+##Appendix
+```{r, fig.pos="center", fig.height=7, fig.width=7, message = FALSE, warnings = FALSE, results = "asis", fig.cap="Mpg vs. various variables in the mtcars dataset", echo = FALSE}
+
+pairs(mtcars, panel = panel.smooth, col=2+as.numeric(mtcars$am))
+```
+
+Figure A1: Correlations between variables in the mtcars dataset where green symbols refer to automatic transmission and blue to manual.
+
+
+```{r results='asis', fig.height=5.75, fig.width=5.75,message = FALSE, warnings = FALSE, echo=FALSE}
+library(knitr)
+library(corrplot)
+#crma<-cor(mtcars, method = "spearman")
+mtcars$am<-as.numeric(mtcars$am)
+M <- cor(mtcars)
+corrplot(M, method = "number",type = "lower")
+
+```
+
+Figure A2: Correlation values for variables in the mrcars dataset
+
+```{r, results='asis', message = FALSE, warnings = FALSE, fig.height=6.75, fig.width=7,echo=FALSE}
+ par(mfrow=c(2,2))  
+plot(mfitcondfin, which=1)
+plot(mfitcorr_cylcr_fin, which=1)
+```
+
+Figure A3: Residuals vs fitted plots for interaction model 1 and model 2
+
+```{r, results='asis', message = FALSE, warnings = FALSE, fig.height=6.75, fig.width=7,echo=FALSE}
+ par(mfrow=c(2,2))  
+plot(mfitcondfin, which=2)
+plot(mfitcorr_cylcr_fin, which=2)
+```
+
+Figure A4: Q:Q plots for interaction model 1 and model 2
+
+```{r, results='asis', message = FALSE, warnings = FALSE, fig.height=6.75, fig.width=7,echo=FALSE}
+ par(mfrow=c(2,2))  
+plot(mfitcondfin, which=3)
+plot(mfitcorr_cylcr_fin, which=3)
+```
+
+Figure A5: Scale-Location plot of sqrt(|residuals|) against fitted values for interaction model 1 and model 2
+
+```{r, results='asis', message = FALSE, warnings = FALSE, fig.height=6.75, fig.width=7,echo=FALSE}
+ par(mfrow=c(2,2))  
+plot(mfitcondfin, which=5)
+plot(mfitcorr_cylcr_fin, which=5)
+```
+
+Figure A5: Residuals against leverages for interaction model 1 and model 2
